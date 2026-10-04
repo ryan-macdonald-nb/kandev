@@ -303,15 +303,14 @@ test("desktop: disabled continuation preserves manual recovery without native re
     assertNativeNoContinuationTrace(fixture.tracePath, "read");
     await expect(session.recoveryResumeButton()).toBeVisible();
     await expect(session.transientRetryCard()).toBeHidden();
-    const trace = fs.readFileSync(fixture.tracePath, "utf8");
-    expect(trace.match(/"event":"session_new"/g)).toHaveLength(1);
-    expect(
-      trace
-        .split("\n")
-        .filter(Boolean)
-        .map((line) => JSON.parse(line))
-        .filter((record) => record.event === "prompt"),
-    ).toHaveLength(1);
+    await expect(testPage.getByTestId("session-recovery-card")).not.toContainText(
+      "after several retries",
+    );
+    const recoveryMessage = testPage.getByText("Automatic continuation is disabled", {
+      exact: false,
+    });
+    await expect(recoveryMessage).toHaveCount(1);
+    await expect(recoveryMessage).toBeVisible();
   } finally {
     try {
       await fixture.dispose();
