@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { expect, type Page } from "@playwright/test";
-import { resetSeedRepositoryCheckout, type SeedData } from "../../fixtures/test-base";
+import type { SeedData } from "../../fixtures/test-base";
+import { resetSeedRepositoryCheckout } from "../../helpers/seed-repository-checkout";
 import type { BackendContext } from "../../fixtures/backend";
 import type { ApiClient } from "../../helpers/api-client";
 import { GitHelper, makeGitEnv, createStandardProfile } from "../../helpers/git-helper";
@@ -194,23 +195,24 @@ export async function showNavigationFiles(page: Page, mobile: boolean, sessionId
   });
 }
 
-async function waitForNavigationGitHydration(page: Page, sessionId: string) {
-  // Initial commit discovery can activate Changes. Select Files after both Git reads settle.
+async function waitForNavigationCommitDiscovery(page: Page, sessionId: string) {
+  // Initial commit discovery can activate Changes. Select Files after its read settles.
   await expect
-    .poll(() =>
-      page.evaluate((sessionId) => {
-        const state = (
-          window as Window & { __KANDEV_E2E_STORE__: StoreApi<AppState> }
-        ).__KANDEV_E2E_STORE__.getState();
-        const env = state.environmentIdBySessionId[sessionId] ?? sessionId;
-        return (
-          state.gitStatus.byEnvironmentRepo[env] !== undefined &&
-          state.sessionCommits.byEnvironmentId[env] !== undefined &&
-          state.sessionCommits.loading[env] !== true
-        );
-      }, sessionId),
+    .poll(
+      () =>
+        page.evaluate((sessionId) => {
+          const state = (
+            window as Window & { __KANDEV_E2E_STORE__: StoreApi<AppState> }
+          ).__KANDEV_E2E_STORE__.getState();
+          const env = state.environmentIdBySessionId[sessionId] ?? sessionId;
+          return {
+            hasCommits: state.sessionCommits.byEnvironmentId[env] !== undefined,
+            loading: state.sessionCommits.loading[env] === true,
+          };
+        }, sessionId),
+      { timeout: 15_000, message: "Session commit discovery did not settle" },
     )
-    .toBe(true);
+    .toMatchObject({ hasCommits: true, loading: false });
 }
 
 export async function selectNavigationTask(page: Page, title: string, mobile = false) {
@@ -241,7 +243,7 @@ export async function assertProgressiveNavigation(
   const session = new SessionPage(page);
   await session.waitForLoad();
   await session.waitForChatIdle();
-  await waitForNavigationGitHydration(page, a.session_id!);
+  await waitForNavigationCommitDiscovery(page, a.session_id!);
   await showNavigationFiles(page, mobile, a.session_id!);
   await waitForTreeResponse(gate, initialRequestOffset, a.session_id!, "");
   await expect(session.fileTreeNode(ROOT_FILE)).toBeVisible({ timeout: 15_000 });
@@ -250,7 +252,7 @@ export async function assertProgressiveNavigation(
   const reloadRequestOffset = gate.requests.length;
   await page.reload();
   await session.waitForLoad();
-  await waitForNavigationGitHydration(page, a.session_id!);
+  await waitForNavigationCommitDiscovery(page, a.session_id!);
   await showNavigationFiles(page, mobile, a.session_id!);
   await expect.poll(() => gate.heldCount(), { timeout: 15_000 }).toBeGreaterThan(0);
   await waitForTreeResponse(gate, reloadRequestOffset, a.session_id!, "");
@@ -282,14 +284,14 @@ export async function assertProgressiveNavigation(
   await selectNavigationTask(page, b.title, mobile);
   await expect(page).toHaveURL(new RegExp(`/t/${b.id}$`));
   await session.waitForChatIdle();
-  await waitForNavigationGitHydration(page, b.session_id!);
+  await waitForNavigationCommitDiscovery(page, b.session_id!);
   await showNavigationFiles(page, mobile, b.session_id!);
   await waitForTreeResponse(gate, taskBRequestOffset, b.session_id!, "");
   await expect(session.fileTreeNode(ROOT_FILE)).toBeVisible({ timeout: 15_000 });
   // Task A's environment-scoped tree cache remains available while returning from B.
   await selectNavigationTask(page, a.title, mobile);
   await expect(page).toHaveURL(new RegExp(`/t/${a.id}$`));
-  await waitForNavigationGitHydration(page, a.session_id!);
+  await waitForNavigationCommitDiscovery(page, a.session_id!);
   await showNavigationFiles(page, mobile, a.session_id!);
   await expect(session.fileTreeNode(`${AVAILABLE}/available.ts`)).toBeVisible();
   if (mobile) {

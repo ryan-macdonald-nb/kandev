@@ -9,6 +9,8 @@ import { PrAssetCapture } from "../helpers/pr-asset-capture";
 import { makeGitEnv } from "../helpers/git-helper";
 import type { WorkflowStep } from "../../lib/types/http";
 
+export { resetSeedRepositoryCheckout } from "../helpers/seed-repository-checkout";
+
 const DEFAULT_SIDEBAR_VIEW = {
   id: "view-all-tasks",
   name: "All tasks",
@@ -544,27 +546,6 @@ export function restoreSeedRepositoryOrigin(seedData: SeedData) {
   }
   execFileSync("git", ["-C", seedData.repositoryPath, "fetch", "--no-tags", "origin"], {
     env,
-  });
-}
-
-/** Restores the shared seed checkout to the immutable fixture baseline. */
-export function resetSeedRepositoryCheckout(seedData: SeedData, tmpDir: string) {
-  const env = makeGitEnv(tmpDir);
-  execFileSync("git", ["-C", seedData.repositoryPath, "checkout", "-f", "main"], {
-    env,
-    stdio: "ignore",
-  });
-  execFileSync(
-    "git",
-    ["-C", seedData.repositoryPath, "reset", "--hard", seedData.repositoryBaselineOID],
-    {
-      env,
-      stdio: "ignore",
-    },
-  );
-  execFileSync("git", ["-C", seedData.repositoryPath, "clean", "-fd"], {
-    env,
-    stdio: "ignore",
   });
 }
 
