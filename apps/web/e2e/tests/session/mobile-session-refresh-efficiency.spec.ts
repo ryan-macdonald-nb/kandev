@@ -46,8 +46,11 @@ test.describe("mobile session refresh efficiency", () => {
       const [initial, unchanged] = await Promise.all([initialRead, unchangedRead]);
 
       expect(initial.headers()["etag"]).toMatch(/^"[a-f0-9]{64}"$/);
+      // Startup updates can replace the initial snapshot. Validate this read's own cache tag.
+      const conditionalHeaders = await unchanged.request().allHeaders();
+      expect(conditionalHeaders["if-none-match"]).toMatch(/^"[a-f0-9]{64}"$/);
+      expect(unchanged.headers()["etag"]).toBe(conditionalHeaders["if-none-match"]);
       expect(unchanged.headers()["etag"]).toMatch(/^"[a-f0-9]{64}"$/);
-      expect(unchanged.headers()["etag"]).toBe(unchanged.request().headers()["if-none-match"]);
     } finally {
       await apiClient
         .stopSession({
