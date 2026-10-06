@@ -182,7 +182,11 @@ test("scrolls ten workflow options in both directions without losing the task dr
     ...scenario.allWorkflows,
   ];
 
+  let reviewInboxId: string | undefined;
   try {
+    // A shared workflow may contain another step with the same label prefix.
+    const reviewInbox = await apiClient.createWorkflowStep(seedData.workflowId, "Review Inbox", 0);
+    reviewInboxId = reviewInbox.id;
     for (const workflow of scenario.allWorkflows) {
       expect(workflow.stepNames).toHaveLength(15);
     }
@@ -305,6 +309,7 @@ test("scrolls ten workflow options in both directions without losing the task dr
     await expect(title).toHaveValue("Preserve the task draft while scrolling");
     await expectTaskDescription(description, "Review every long workflow preview before choosing.");
   } finally {
+    if (reviewInboxId) await apiClient.deleteWorkflowStep(reviewInboxId);
     await cleanupWorkflowStepPreviewScenario(apiClient, scenario);
   }
 });
