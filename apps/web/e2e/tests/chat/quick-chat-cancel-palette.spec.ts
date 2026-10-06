@@ -8,19 +8,45 @@ import {
   waitForActiveSessionForegroundActivity,
 } from "../../helpers/session-store";
 import { seedRunningGeneratingSession } from "../../helpers/generating-session";
+import type { ApiClient } from "../../helpers/api-client";
 import {
   openQuickChatWithAgent,
   sendQuickChatMessage,
   waitForQuickChatDirectInput,
+  waitForSessionSettledBaseline,
 } from "./quick-chat-helpers";
 
 function commandDialog(page: Page) {
   return page.locator('[role="dialog"]:has([cmdk-input])').last();
 }
 
-test.describe.serial("Quick Chat cancellation palette and composer", () => {
-  test.describe.configure({ retries: 1 });
+async function openSettledQuickChat(page: Page, apiClient: ApiClient, navigateHome = true) {
+  const created = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      new URL(response.url()).pathname.endsWith("/quick-chat"),
+  );
+  const dialog = await openQuickChatWithAgent(page, navigateHome);
+  const { task_id: taskId, session_id: sessionId } = (await (await created).json()) as {
+    task_id: string;
+    session_id: string;
+  };
+  // The composer can accept steering before its opening prompt finishes.
+  // Cancellation scenarios start a separate turn after that prompt settles.
+  await expect
+    .poll(
+      async () => {
+        const { turns } = await apiClient.listSessionTurns(sessionId);
+        return turns.length > 0 && turns.every((turn) => Boolean(turn.completed_at));
+      },
+      { timeout: 30_000, message: "Quick Chat opening turn did not finish" },
+    )
+    .toBe(true);
+  await waitForSessionSettledBaseline(apiClient, taskId, sessionId);
+  return dialog;
+}
 
+test.describe.serial("Quick Chat cancellation palette and composer", () => {
   test.beforeAll(async ({ backend }) => {
     await backend.restart({
       KANDEV_FEATURES_CLAUDE_BACKGROUND_PROMPT_HANDOFF: "true",
@@ -32,9 +58,12 @@ test.describe.serial("Quick Chat cancellation palette and composer", () => {
     await backend.restart();
   });
 
-  test("cancels an active Quick Chat turn from its empty composer", async ({ testPage }) => {
+  test("cancels an active Quick Chat turn from its empty composer", async ({
+    testPage,
+    apiClient,
+  }) => {
     test.setTimeout(120_000);
-    const quickChat = await openQuickChatWithAgent(testPage);
+    const quickChat = await openSettledQuickChat(testPage, apiClient);
     await sendQuickChatMessage(quickChat, testPage, "/slow 30s");
 
     const quickSessionId = await waitForActiveQuickChatSupportsSteering(testPage);
@@ -52,9 +81,12 @@ test.describe.serial("Quick Chat cancellation palette and composer", () => {
     await expect(cancel).not.toBeVisible({ timeout: 15_000 });
   });
 
-  test("cancels Quick Chat while detached background work runs", async ({ testPage }) => {
+  test("cancels Quick Chat while detached background work runs", async ({
+    testPage,
+    apiClient,
+  }) => {
     test.setTimeout(120_000);
-    const quickChat = await openQuickChatWithAgent(testPage);
+    const quickChat = await openSettledQuickChat(testPage, apiClient);
     await sendQuickChatMessage(quickChat, testPage, "/detached-background 20s");
 
     const quickSessionId = await testPage.evaluate(() => {
@@ -99,7 +131,7 @@ test.describe.serial("Quick Chat cancellation palette and composer", () => {
     const underlyingCancel = session.activeChat().getByTestId("cancel-agent-button");
     await expect(underlyingCancel).toBeVisible();
 
-    const quickChat = await openQuickChatWithAgent(testPage, false);
+    const quickChat = await openSettledQuickChat(testPage, apiClient, false);
     await sendQuickChatMessage(quickChat, testPage, "/slow 30s");
     await expect(
       quickChat.getByRole("status", { name: /Agent is (starting|running)/ }),

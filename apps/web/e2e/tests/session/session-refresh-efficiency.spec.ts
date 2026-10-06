@@ -46,8 +46,12 @@ test.describe("session refresh efficiency", () => {
       const [initial, unchanged] = await Promise.all([initialRead, unchangedRead]);
 
       expect(initial.headers()["etag"]).toMatch(/^"[a-f0-9]{64}"$/);
+      // Live startup updates can replace the first response's cached snapshot.
+      // The 304 must validate the snapshot requested by its own conditional read.
+      const conditionalHeaders = await unchanged.request().allHeaders();
+      expect(conditionalHeaders["if-none-match"]).toMatch(/^"[a-f0-9]{64}"$/);
+      expect(unchanged.headers()["etag"]).toBe(conditionalHeaders["if-none-match"]);
       expect(unchanged.headers()["etag"]).toMatch(/^"[a-f0-9]{64}"$/);
-      expect(unchanged.headers()["etag"]).toBe(unchanged.request().headers()["if-none-match"]);
     } finally {
       await apiClient
         .stopSession({ session_id: sessionId, reason: "session refresh E2E cleanup", force: true })
