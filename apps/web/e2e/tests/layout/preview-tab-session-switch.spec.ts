@@ -291,7 +291,7 @@ test.describe("Preview tab survives session switch", () => {
     const taskB = await seedFinishedTask(apiClient, seedData, "Active Tab Round-Trip B");
 
     const kanban = new KanbanPage(testPage);
-    await kanban.goto();
+    await kanban.goto(seedData.workflowId);
     await kanban.taskCardByTitle("Active Tab Round-Trip A").click();
     await expect(testPage).toHaveURL(/\/t\//, { timeout: 15_000 });
     const session = new SessionPage(testPage);
@@ -343,7 +343,7 @@ test.describe("Preview tab survives session switch", () => {
     await seedFinishedTask(apiClient, seedData, "Refresh Active Tab Task");
 
     const kanban = new KanbanPage(testPage);
-    await kanban.goto();
+    await kanban.goto(seedData.workflowId);
     await kanban.taskCardByTitle("Refresh Active Tab Task").click();
     await expect(testPage).toHaveURL(/\/t\//, { timeout: 15_000 });
     const session = new SessionPage(testPage);

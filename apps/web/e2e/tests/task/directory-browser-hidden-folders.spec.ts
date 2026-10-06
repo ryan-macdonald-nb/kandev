@@ -5,6 +5,7 @@ import { mockFolderAvailability } from "../../helpers/open-task-folder";
 import type { Locator, Page } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
+import { SessionPage } from "../../pages/session-page";
 import type { BackendContext } from "../../fixtures/backend";
 
 const HIDDEN_DIRECTORY = ".hidden-project";
@@ -49,6 +50,11 @@ async function settlePicker(picker: Locator): Promise<void> {
  * row, which is the directory browser this feature owns. */
 async function openFolderSourceDialog(page: Page, taskId: string) {
   await page.goto(`/t/${taskId}`);
+  const session = new SessionPage(page);
+  await session.waitForLoad();
+  await session.waitForChatIdle();
+  await session.clickTab("Files");
+  await expect(page.getByTestId("files-workspace-actions")).toBeVisible();
   await page.getByTestId("files-workspace-actions").click();
   await page.getByRole("menuitem", { name: "Add Repositories to workspace" }).click();
   const dialog = page.getByTestId("add-workspace-sources-dialog");
