@@ -122,6 +122,13 @@ test.describe("Session recovery", () => {
       // the delayed mock agent. This is the browser path that used to leave a
       // resume continuation alive after cancellation.
       await expect(fixture.session.cancelAgentButton()).toBeVisible({ timeout: 15_000 });
+      await expect(
+        fixture.session.activeChat().getByText(/delaying resume for session .* by 30s/),
+      ).toBeVisible({ timeout: 15_000 });
+      // The running subprocess already captured its delayed-load environment.
+      // Only that attempt needs the delay: a replacement should not spend a
+      // second artificial 30 seconds loading the same saved conversation.
+      await apiClient.updateAgentProfile(fixture.delayedProfileId, { env_vars: [] });
       await fixture.session.cancelAgentButton().click();
       await waitForSessionState(apiClient, {
         taskId: fixture.task.id,
