@@ -253,7 +253,7 @@ for (const scenario of ["pending", "unknown"]) {
   });
 }
 
-test("desktop: disabled continuation preserves manual recovery without native replay", async ({
+test("desktop: disabled continuation preserves legacy replay and manual recovery", async ({
   testPage,
   backend,
   apiClient,
@@ -268,6 +268,7 @@ test("desktop: disabled continuation preserves manual recovery without native re
     enabled: false,
   });
   try {
+    // Keep task-open recovery separate from the disabled continuation policy under test.
     await apiClient.saveUserSettings({ prevent_auto_start_agent_on_open: true });
     const recovery = await waitForContinuationMessage(
       apiClient,
@@ -297,21 +298,23 @@ test("desktop: disabled continuation preserves manual recovery without native re
       });
     await testPage.goto(`/t/${fixture.taskId}`);
     const session = new SessionPage(testPage);
+    await session.waitForLoad();
     expect(recovery.metadata?.recovery_actions).toBe(true);
     expect(recovery.metadata?.runtime_retained).not.toBe(true);
     expect(recovery.metadata?.attempts_started ?? 0).toBe(0);
     assertNativeNoContinuationTrace(fixture.tracePath, "read");
     await expect(session.recoveryResumeButton()).toBeVisible();
     await expect(session.transientRetryCard()).toBeHidden();
-    const trace = fs.readFileSync(fixture.tracePath, "utf8");
-    expect(trace.match(/"event":"session_new"/g)).toHaveLength(1);
-    expect(
-      trace
-        .split("\n")
-        .filter(Boolean)
-        .map((line) => JSON.parse(line))
-        .filter((record) => record.event === "prompt"),
-    ).toHaveLength(1);
+    const records = fs
+      .readFileSync(fixture.tracePath, "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { event: string; prompt?: string });
+    expect(records.filter((record) => record.event === "session_new")).toHaveLength(1);
+    const prompts = records.filter((record) => record.event === "prompt");
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0].prompt).toContain("/continuation-read");
+    expect(prompts.filter((record) => record.prompt === "continue")).toHaveLength(0);
   } finally {
     try {
       await fixture.dispose();
