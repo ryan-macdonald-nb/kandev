@@ -1154,7 +1154,11 @@ export const createSessionSlice: StateCreator<
   ...buildTaskSessionProjectionActions(set),
   setSessionAgentctlStatus: (sessionId, status) =>
     set((draft) => {
-      draft.sessionAgentctl.itemsBySessionId[sessionId] = status;
+      const previous = draft.sessionAgentctl.itemsBySessionId[sessionId];
+      // Recovery may confirm the same status without execution or timestamp
+      // metadata. Keep the observation used to reject delayed snapshots.
+      draft.sessionAgentctl.itemsBySessionId[sessionId] =
+        previous?.status === status.status ? { ...previous, ...status } : status;
     }),
   setWorktree: (worktree) =>
     set((draft) => {

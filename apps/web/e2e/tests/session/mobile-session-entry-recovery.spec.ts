@@ -28,38 +28,45 @@ test.describe("mobile session entry recovery", () => {
       `Mobile history recovery ${Date.now()}`,
     );
 
-    if (!task.session_id) throw new Error("created recovery task has no session");
-    proxy.rejectResponsesUntilReleased("message.list", "Simulated temporary history failure", {
-      sessionId: task.session_id,
-    });
+    const sessionId = task.session_id;
+    if (!sessionId) throw new Error("created recovery task has no session");
+    // History recovery starts from a completed conversation. Opening-turn
+    // events would otherwise schedule additional reads during fault injection.
+    await expect
+      .poll(
+        async () => {
+          const { turns } = await apiClient.listSessionTurns(sessionId);
+          return turns.length > 0 && turns.every((turn) => Boolean(turn.completed_at));
+        },
+        { timeout: 30_000, message: "Opening turn did not finish before history recovery" },
+      )
+      .toBe(true);
+    // Exhaust the two bounded history reads before exercising manual Retry.
+    // Releasing an ongoing rejection rule can let a startup refresh remove
+    // the notice while the touch action is still waiting for a stable target.
+    proxy.dropNextResponses("message.list", 2, { sessionId });
+    const session = await openTaskSession(testPage, task.id);
+    const chat = session.activeChat();
+    const historyNotice = chat.getByTestId("session-history-unavailable");
+    await expect
+      .poll(() => proxy.droppedResponseCount("message.list"), {
+        timeout: 45_000,
+        message: "Waiting for both scoped history reads to be dropped",
+      })
+      .toBe(2);
+    await expect(historyNotice).toBeVisible({ timeout: 45_000 });
 
-    try {
-      const session = await openTaskSession(testPage, task.id);
-      const chat = session.activeChat();
-      const historyNotice = chat.getByTestId("session-history-unavailable");
-      await expect
-        .poll(() => proxy.rejectedResponseCount("message.list"), {
-          timeout: 45_000,
-          message: "Waiting for a session-scoped message.list failure",
-        })
-        .toBeGreaterThan(0);
-      await expect(historyNotice).toBeVisible({ timeout: 45_000 });
+    const retry = historyNotice.getByTestId("session-history-retry");
+    const retryBox = await retry.boundingBox();
+    expect(retryBox?.height).toBeGreaterThanOrEqual(44);
+    const detailsSummary = historyNotice.getByTestId("session-history-details-summary");
+    const detailsBox = await detailsSummary.boundingBox();
+    expect(detailsBox?.height).toBeGreaterThanOrEqual(44);
+    await assertNoDocumentHorizontalOverflow(testPage, "mobile session history recovery");
 
-      const retry = historyNotice.getByTestId("session-history-retry");
-      const retryBox = await retry.boundingBox();
-      expect(retryBox?.height).toBeGreaterThanOrEqual(44);
-      const detailsSummary = historyNotice.getByTestId("session-history-details-summary");
-      const detailsBox = await detailsSummary.boundingBox();
-      expect(detailsBox?.height).toBeGreaterThanOrEqual(44);
-      await assertNoDocumentHorizontalOverflow(testPage, "mobile session history recovery");
-
-      proxy.releaseRejectedResponses("message.list");
-      await retry.tap();
-      await expect(historyNotice).toHaveCount(0);
-      await expect(chat).toContainText("simple mock response", { timeout: 30_000 });
-      expect(proxy.rejectedResponseCount("message.list")).toBeGreaterThan(0);
-    } finally {
-      proxy.releaseRejectedResponses("message.list");
-    }
+    await retry.tap();
+    await expect(historyNotice).toHaveCount(0);
+    await expect(chat).toContainText("simple mock response", { timeout: 30_000 });
+    expect(proxy.droppedResponseCount("message.list")).toBe(2);
   });
 });
