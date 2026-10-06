@@ -180,7 +180,11 @@ test.describe("Slash command composer", () => {
     apiClient,
     seedData,
   }) => {
-    const notifications = await routeGatewayNotifications(testPage);
+    // This scenario scripts the provider catalog and configuration itself.
+    const notifications = await routeGatewayNotifications(testPage, [
+      "session.available_commands",
+      "session.models_updated",
+    ]);
     const task = await createReadyTask(apiClient, seedData, "Live Plan Mode Updates");
     if (!task.session_id) throw new Error("createTaskWithAgent did not return a session_id");
 
