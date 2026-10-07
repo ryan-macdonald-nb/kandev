@@ -4,7 +4,10 @@ import path from "node:path";
 import { expect, test } from "../../fixtures/test-base";
 import { makeGitEnv } from "../../helpers/git-helper";
 import { useRegularMode } from "../../helpers/regular-mode";
-import { expectPolicyOptionUsesOneLine } from "./create-task-branch-policy-helpers";
+import {
+  openBranchPolicyDialog,
+  expectPolicyOptionUsesOneLine,
+} from "./create-task-branch-policy-helpers";
 
 useRegularMode();
 
@@ -56,8 +59,19 @@ test.describe("Task creation with branch policies", () => {
         localExecutor.id,
         `E2E Branch Policy Local ${Date.now()}`,
       );
+      // Start with fully clipped navigation to cover the inherited layout that
+      // previously left New Task underneath the divider's pointer target.
+      const { settings } = await apiClient.getUserSettings();
+      const layout = settings.sidebar_layouts_by_workspace![seedData.workspaceId];
+      await apiClient.saveUserSettings({
+        sidebar_layout_state: {
+          workspace_id: seedData.workspaceId,
+          expected_revision: layout.revision,
+          layout: { ...layout, navigation_height: 0, navigation_expanded: false },
+        },
+      });
       await testPage.goto("/");
-      await testPage.getByTestId("create-task-button").first().click();
+      await openBranchPolicyDialog(testPage);
       const dialog = testPage.getByTestId("create-task-dialog");
       await expect(dialog).toBeVisible();
       await dialog.getByTestId("executor-profile-selector").click();
@@ -190,7 +204,7 @@ test.describe("Task creation with branch policies", () => {
         `E2E Multi-repo Branch Policy Local ${Date.now()}`,
       );
       await testPage.goto("/");
-      await testPage.getByTestId("create-task-button").first().click();
+      await openBranchPolicyDialog(testPage);
       const dialog = testPage.getByTestId("create-task-dialog");
       await expect(dialog).toBeVisible();
       await dialog.getByTestId("executor-profile-selector").click();
