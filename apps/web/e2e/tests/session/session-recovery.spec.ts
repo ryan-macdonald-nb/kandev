@@ -110,11 +110,11 @@ test.describe("Session recovery", () => {
   }) => {
     test.setTimeout(150_000);
 
-    // The cancelled startup and the retry both load this session. Keep each
-    // injected delay short enough for the response assertion after cleanup.
+    // Hold the cancelled startup until its trace is visible. The retry uses
+    // the normal profile after the delayed process captures its environment.
     const fixture = await seedDelayedResumeFixture(testPage, apiClient, seedData, backend, {
       title: "Session cancel and retry recovery",
-      resumeDelay: "15s",
+      resumeDelay: "30s",
     });
 
     try {
