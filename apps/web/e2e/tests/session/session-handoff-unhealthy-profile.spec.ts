@@ -55,18 +55,25 @@ async function markProfileCapabilityNotInstalled(testPage: Page, profileId: stri
 async function createProfiles(
   apiClient: InstanceType<typeof import("../../helpers/api-client").ApiClient>,
 ) {
-  const { agents } = await apiClient.listAgents();
+  const [{ agents }, { agents: registeredAgents }] = await Promise.all([
+    apiClient.listAgents(),
+    apiClient.listAvailableAgents(),
+  ]);
+  const registeredNames = new Set(registeredAgents.map((candidate) => candidate.name));
+  // Runtime fixtures can leave DB rows after restoring the mock-only registry.
+  // Only registered concrete agents accept new profiles.
+  const concreteAgents = agents.filter(
+    (candidate) => candidate.name !== "dynamic" && registeredNames.has(candidate.name),
+  );
   const agent =
-    agents.find((candidate) => candidate.name === "mock-agent") ??
-    agents.find((candidate) => candidate.id !== "dynamic");
+    concreteAgents.find((candidate) => candidate.name === "mock-agent") ?? concreteAgents[0];
   if (!agent) throw new Error("no concrete agents available in test fixtures");
   const agentId = agent.id;
   const profileA = await apiClient.createAgentProfile(agentId, "Handoff Filter Profile A", {
     model: "mock-fast",
   });
   const profileBAgentId =
-    agents.find((candidate) => candidate.id !== "dynamic" && candidate.id !== agentId)?.id ??
-    agentId;
+    concreteAgents.find((candidate) => candidate.id !== agentId)?.id ?? agentId;
   const profileB = await apiClient.createAgentProfile(profileBAgentId, "Handoff Filter Profile B", {
     model: "mock-slow",
   });
@@ -83,72 +90,77 @@ test.describe("Session handoff filters unhealthy profiles", () => {
 
     const { profileA, profileB, profilesShareAgent } = await createProfiles(apiClient);
 
-    const task = await apiClient.createTaskWithAgent(
-      seedData.workspaceId,
-      "Handoff Filter Task",
-      profileA.id,
-      {
-        description: "/e2e:simple-message",
-        workflow_id: seedData.workflowId,
-        workflow_step_id: seedData.startStepId,
-        repository_ids: [seedData.repositoryId],
-        executor_profile_id: seedData.worktreeExecutorProfileId,
-      },
-    );
-
-    await expect
-      .poll(
-        async () => {
-          const { sessions } = await apiClient.listTaskSessions(task.id);
-          return DONE_STATES.includes(sessions[0]?.state ?? "");
+    try {
+      const task = await apiClient.createTaskWithAgent(
+        seedData.workspaceId,
+        "Handoff Filter Task",
+        profileA.id,
+        {
+          description: "/e2e:simple-message",
+          workflow_id: seedData.workflowId,
+          workflow_step_id: seedData.startStepId,
+          repository_ids: [seedData.repositoryId],
+          executor_profile_id: seedData.worktreeExecutorProfileId,
         },
-        { timeout: 30_000, message: "Waiting for first session to finish" },
-      )
-      .toBe(true);
+      );
 
-    const { sessions } = await apiClient.listTaskSessions(task.id);
-    const session1Id = sessions[0].id;
+      await expect
+        .poll(
+          async () => {
+            const { sessions } = await apiClient.listTaskSessions(task.id);
+            return DONE_STATES.includes(sessions[0]?.state ?? "");
+          },
+          { timeout: 30_000, message: "Waiting for first session to finish" },
+        )
+        .toBe(true);
 
-    // The handoff flow does not depend on Kanban rendering. Navigate directly
-    // to the task so a slow board refresh cannot consume the test timeout
-    // before the session menu is exercised.
-    await testPage.goto(`/t/${task.id}`);
-    await expect(testPage).toHaveURL(/\/t\//, { timeout: 15_000 });
+      const { sessions } = await apiClient.listTaskSessions(task.id);
+      const session1Id = sessions[0].id;
 
-    const session = new SessionPage(testPage);
-    await session.waitForLoad();
+      // The handoff flow does not depend on Kanban rendering. Navigate directly
+      // to the task so a slow board refresh cannot consume the test timeout
+      // before the session menu is exercised.
+      await testPage.goto(`/t/${task.id}`);
+      await expect(testPage).toHaveURL(/\/t\//, { timeout: 15_000 });
 
-    await session.sessionTabBySessionId(session1Id).click({ button: "right" });
-    await session.handoffSubmenu().hover();
-    await expect(session.handoffProfileItem(profileB.id)).toBeVisible({ timeout: 5_000 });
-    await testPage.keyboard.press("Escape");
+      const session = new SessionPage(testPage);
+      await session.waitForLoad();
 
-    // A real agent.available.updated event changes every profile for the
-    // agent. Use separate agents for the mixed-health assertion when the
-    // fixture provides them. The single-agent mock must mark both profiles
-    // unhealthy instead of creating an impossible mixed state. Include the
-    // fixture's seeded profile because it belongs to the same agent and would
-    // otherwise keep one healthy handoff option visible.
-    if (profilesShareAgent) {
-      await markProfileCapabilityNotInstalled(testPage, profileA.id);
-      await markProfileCapabilityNotInstalled(testPage, profileB.id);
-      await markProfileCapabilityNotInstalled(testPage, seedData.agentProfileId);
-    } else {
-      await markProfileCapabilityNotInstalled(testPage, profileB.id);
+      await session.sessionTabBySessionId(session1Id).click({ button: "right" });
+      await session.handoffSubmenu().hover();
+      await expect(session.handoffProfileItem(profileB.id)).toBeVisible({ timeout: 5_000 });
+      await testPage.keyboard.press("Escape");
+
+      // A real agent.available.updated event changes every profile for the
+      // agent. Use separate agents for the mixed-health assertion when the
+      // fixture provides them. The single-agent mock must mark both profiles
+      // unhealthy instead of creating an impossible mixed state. Include the
+      // fixture's seeded profile because it belongs to the same agent and would
+      // otherwise keep one healthy handoff option visible.
+      if (profilesShareAgent) {
+        await markProfileCapabilityNotInstalled(testPage, profileA.id);
+        await markProfileCapabilityNotInstalled(testPage, profileB.id);
+        await markProfileCapabilityNotInstalled(testPage, seedData.agentProfileId);
+      } else {
+        await markProfileCapabilityNotInstalled(testPage, profileB.id);
+      }
+
+      await session.sessionTabBySessionId(session1Id).click({ button: "right" });
+      await session.handoffSubmenu().hover();
+      if (profilesShareAgent) {
+        await expect(session.handoffProfileItem(profileA.id)).not.toBeVisible();
+        await expect(
+          testPage.getByText(
+            "No agent profiles are ready. Install or reconnect an agent CLI in Settings → Agents.",
+          ),
+        ).toBeVisible();
+      } else {
+        await expect(session.handoffProfileItem(profileA.id)).toBeVisible({ timeout: 5_000 });
+      }
+      await expect(session.handoffProfileItem(profileB.id)).not.toBeVisible();
+    } finally {
+      await apiClient.deleteAgentProfile(profileB.id, true);
+      await apiClient.deleteAgentProfile(profileA.id, true);
     }
-
-    await session.sessionTabBySessionId(session1Id).click({ button: "right" });
-    await session.handoffSubmenu().hover();
-    if (profilesShareAgent) {
-      await expect(session.handoffProfileItem(profileA.id)).not.toBeVisible();
-      await expect(
-        testPage.getByText(
-          "No agent profiles are ready. Install or reconnect an agent CLI in Settings → Agents.",
-        ),
-      ).toBeVisible();
-    } else {
-      await expect(session.handoffProfileItem(profileA.id)).toBeVisible({ timeout: 5_000 });
-    }
-    await expect(session.handoffProfileItem(profileB.id)).not.toBeVisible();
   });
 });
