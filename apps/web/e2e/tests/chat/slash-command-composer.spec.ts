@@ -278,13 +278,18 @@ test.describe("Slash command composer", () => {
     apiClient,
     seedData,
   }) => {
-    const notifications = await routeGatewayNotifications(testPage);
+    // This scenario owns the provider catalog and snapshots. Late mock-agent
+    // notifications must not replace its plan command or confirmed mode.
+    const notifications = await routeGatewayNotifications(testPage, [
+      "session.available_commands",
+      "session.models_updated",
+    ]);
     const task = await createReadyTask(apiClient, seedData, "Startup Plan Mode Snapshot");
     if (!task.session_id) throw new Error("createTaskWithAgent did not return a session_id");
 
     const session = await openTaskChat(testPage, task.id);
-    await seedAvailableCommands(testPage, task.session_id, [PLAN_COMMAND]);
     const previousExecutionId = await waitForAgentExecutionId(testPage, task.session_id);
+    await seedAvailableCommands(testPage, task.session_id, [PLAN_COMMAND]);
     const planSnapshot = (executionId: string) => ({
       task_id: task.id,
       session_id: task.session_id,
