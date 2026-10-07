@@ -12,6 +12,7 @@ vi.mock("@/components/state-provider", () => ({
   useAppStore: (selector: (state: unknown) => unknown) =>
     selector({
       workspaces: { activeId: mocks.workspaceId },
+      connection: { status: "connected" },
       tasks: { activeTaskId: mocks.activeTaskId },
       taskPRs: { byTaskId: { [mocks.activeTaskId]: mocks.prs } },
     }),
@@ -19,6 +20,7 @@ vi.mock("@/components/state-provider", () => ({
 
 vi.mock("@/lib/ws/connection", () => ({
   getWebSocketClient: () => ({ request: mocks.request }),
+  useWebSocketClient: () => ({ request: mocks.request }),
 }));
 
 import { useActiveTaskPRsWithFiles } from "./use-active-task-pr-files";
