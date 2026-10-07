@@ -253,7 +253,7 @@ for (const scenario of ["pending", "unknown"]) {
   });
 }
 
-test("desktop: disabled continuation preserves legacy replay and manual recovery", async ({
+test("desktop: disabled continuation preserves manual recovery without native replay", async ({
   testPage,
   backend,
   apiClient,
@@ -332,11 +332,14 @@ test("desktop: Cancel while waiting prevents native restore", async ({
   apiClient,
   seedData,
 }) => {
-  const fixture = await createContinuationFixture(backend, apiClient, seedData, "read-hold");
+  const fixture = await createContinuationFixture(backend, apiClient, seedData, "read-hold", {
+    deferInterruption: true,
+  });
   try {
     await testPage.goto(`/t/${fixture.taskId}`);
     const session = new SessionPage(testPage);
     await session.waitForLoad();
+    fixture.releaseInterruption();
     await expect(session.transientRetryCard()).toContainText("Continuing in", { timeout: 30_000 });
     await session.recoveryCancelRetryButton().click();
     const cancelled = await waitForContinuationMessage(

@@ -1,5 +1,6 @@
 import { test, expect } from "../../fixtures/test-base";
 import { useRegularMode } from "../../helpers/regular-mode";
+import { openCreateTaskDialog } from "../../helpers/create-task-dialog";
 import { KanbanPage } from "../../pages/kanban-page";
 import { SessionPage } from "../../pages/session-page";
 import { expectTaskDescription } from "../../pages/task-description-editor";
@@ -32,8 +33,19 @@ test.describe("Task creation", () => {
       workflow_step_id: hiddenStart.id,
     });
 
+    // Exercise task creation with navigation clipped by a persisted sidebar layout.
+    const { settings } = await apiClient.getUserSettings();
+    const layout = settings.sidebar_layouts_by_workspace![seedData.workspaceId];
+    await apiClient.saveUserSettings({
+      sidebar_layout_state: {
+        workspace_id: seedData.workspaceId,
+        expected_revision: layout.revision,
+        layout: { ...layout, navigation_height: 0, navigation_expanded: false },
+      },
+    });
+
     await testPage.goto(`/t/${sourceTask.id}`);
-    await testPage.getByTestId("create-task-button").first().click();
+    await openCreateTaskDialog(testPage);
 
     const dialog = testPage.getByTestId("create-task-dialog");
     await expect(dialog).toBeVisible();
