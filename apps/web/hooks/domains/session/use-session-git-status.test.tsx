@@ -1,9 +1,13 @@
 import { cleanup, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { useSessionGitPendingScope } from "./use-session-git-status";
+import { useSessionGitPendingScope, useSessionGitStatus } from "./use-session-git-status";
 
 const mocks = vi.hoisted(() => ({
+  client: null as { subscribeSession: (sessionId: string) => () => void } | null,
+  subscribeSession: vi.fn(() => vi.fn()),
   state: {
+    connection: { status: "connected" },
+    gitStatus: { byEnvironmentId: {} },
     environmentIdBySessionId: {} as Record<string, string>,
     sessionCommits: { refetchTrigger: {} as Record<string, number> },
   },
@@ -12,6 +16,28 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/components/state-provider", () => ({
   useAppStore: (selector: (state: typeof mocks.state) => unknown) => selector(mocks.state),
 }));
+
+vi.mock("@/lib/ws/connection", () => ({
+  getWebSocketClient: () => mocks.client,
+  useWebSocketClient: () => mocks.client,
+}));
+
+describe("useSessionGitStatus subscription readiness", () => {
+  afterEach(cleanup);
+
+  it("subscribes when the client registers after the connected state", () => {
+    mocks.client = null;
+    mocks.subscribeSession.mockClear();
+    const hook = renderHook(() => useSessionGitStatus("session-1"));
+    expect(mocks.subscribeSession).not.toHaveBeenCalled();
+
+    mocks.client = { subscribeSession: mocks.subscribeSession };
+    hook.rerender();
+
+    expect(mocks.subscribeSession).toHaveBeenCalledOnce();
+    expect(mocks.subscribeSession).toHaveBeenCalledWith("session-1");
+  });
+});
 
 describe("useSessionGitPendingScope", () => {
   afterEach(cleanup);
